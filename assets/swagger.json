@@ -4557,6 +4557,9 @@
         "namespace": {
           "type": "string"
         },
+        "requiresDeletionConfirmation": {
+          "type": "boolean"
+        },
         "requiresPruning": {
           "type": "boolean"
         },
@@ -7153,6 +7156,10 @@
         },
         "password": {
           "type": "string"
+        },
+        "proxyUrl": {
+          "type": "string",
+          "title": "ProxyURL is the URL to the proxy to be used for all requests send to the server"
         },
         "tlsClientConfig": {
           "$ref": "#/definitions/v1alpha1TLSClientConfig"

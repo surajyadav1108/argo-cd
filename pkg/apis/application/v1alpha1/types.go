@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/argoproj/gitops-engine/pkg/health"
 	synccommon "github.com/argoproj/gitops-engine/pkg/sync/common"
+	"github.com/argoproj/gitops-engine/pkg/utils/kube"
 	"github.com/robfig/cron/v3"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -1039,6 +1041,16 @@ type ApplicationStatus struct {
 	ControllerNamespace string `json:"controllerNamespace,omitempty" protobuf:"bytes,13,opt,name=controllerNamespace"`
 }
 
+func (a *ApplicationStatus) FindResource(key kube.ResourceKey) (*ResourceStatus, bool) {
+	for i := range a.Resources {
+		res := a.Resources[i]
+		if kube.NewResourceKey(res.Group, res.Kind, res.Namespace, res.Name) == key {
+			return &res, true
+		}
+	}
+	return nil, false
+}
+
 // GetRevisions will return the current revision associated with the Application.
 // If app has multisources, it will return all corresponding revisions preserving
 // order from the app.spec.sources. If app has only one source, it will return a
@@ -1055,15 +1067,15 @@ func (a *ApplicationStatus) GetRevisions() []string {
 
 // BuildComparedToStatus will build a ComparedTo object based on the current
 // Application state.
-func (app *Application) BuildComparedToStatus() ComparedTo {
+func (spec *ApplicationSpec) BuildComparedToStatus() ComparedTo {
 	ct := ComparedTo{
-		Destination:       app.Spec.Destination,
-		IgnoreDifferences: app.Spec.IgnoreDifferences,
+		Destination:       spec.Destination,
+		IgnoreDifferences: spec.IgnoreDifferences,
 	}
-	if app.Spec.HasMultipleSources() {
-		ct.Sources = app.Spec.Sources
+	if spec.HasMultipleSources() {
+		ct.Sources = spec.Sources
 	} else {
-		ct.Source = app.Spec.GetSource()
+		ct.Source = spec.GetSource()
 	}
 	return ct
 }
@@ -1810,16 +1822,17 @@ func (n *ResourceNode) GroupKindVersion() schema.GroupVersionKind {
 // ResourceStatus holds the current sync and health status of a resource
 // TODO: describe members of this type
 type ResourceStatus struct {
-	Group           string         `json:"group,omitempty" protobuf:"bytes,1,opt,name=group"`
-	Version         string         `json:"version,omitempty" protobuf:"bytes,2,opt,name=version"`
-	Kind            string         `json:"kind,omitempty" protobuf:"bytes,3,opt,name=kind"`
-	Namespace       string         `json:"namespace,omitempty" protobuf:"bytes,4,opt,name=namespace"`
-	Name            string         `json:"name,omitempty" protobuf:"bytes,5,opt,name=name"`
-	Status          SyncStatusCode `json:"status,omitempty" protobuf:"bytes,6,opt,name=status"`
-	Health          *HealthStatus  `json:"health,omitempty" protobuf:"bytes,7,opt,name=health"`
-	Hook            bool           `json:"hook,omitempty" protobuf:"bytes,8,opt,name=hook"`
-	RequiresPruning bool           `json:"requiresPruning,omitempty" protobuf:"bytes,9,opt,name=requiresPruning"`
-	SyncWave        int64          `json:"syncWave,omitempty" protobuf:"bytes,10,opt,name=syncWave"`
+	Group                        string         `json:"group,omitempty" protobuf:"bytes,1,opt,name=group"`
+	Version                      string         `json:"version,omitempty" protobuf:"bytes,2,opt,name=version"`
+	Kind                         string         `json:"kind,omitempty" protobuf:"bytes,3,opt,name=kind"`
+	Namespace                    string         `json:"namespace,omitempty" protobuf:"bytes,4,opt,name=namespace"`
+	Name                         string         `json:"name,omitempty" protobuf:"bytes,5,opt,name=name"`
+	Status                       SyncStatusCode `json:"status,omitempty" protobuf:"bytes,6,opt,name=status"`
+	Health                       *HealthStatus  `json:"health,omitempty" protobuf:"bytes,7,opt,name=health"`
+	Hook                         bool           `json:"hook,omitempty" protobuf:"bytes,8,opt,name=hook"`
+	RequiresPruning              bool           `json:"requiresPruning,omitempty" protobuf:"bytes,9,opt,name=requiresPruning"`
+	SyncWave                     int64          `json:"syncWave,omitempty" protobuf:"bytes,10,opt,name=syncWave"`
+	RequiresDeletionConfirmation bool           `json:"requiresDeletionConfirmation,omitempty" protobuf:"bytes,11,opt,name=requiresDeletionConfirmation"`
 }
 
 // GroupVersionKind returns the GVK schema type for given resource status
@@ -2042,6 +2055,9 @@ type ClusterConfig struct {
 
 	// DisableCompression bypasses automatic GZip compression requests to the server.
 	DisableCompression bool `json:"disableCompression,omitempty" protobuf:"bytes,7,opt,name=disableCompression"`
+
+	// ProxyURL is the URL to the proxy to be used for all requests send to the server
+	ProxyUrl string `json:"proxyUrl,omitempty" protobuf:"bytes,8,opt,name=proxyUrl"`
 }
 
 // TLSClientConfig contains settings to enable transport layer security
@@ -3105,6 +3121,9 @@ func SetK8SConfigDefaults(config *rest.Config) error {
 		DisableCompression:  config.DisableCompression,
 		IdleConnTimeout:     K8sTCPIdleConnTimeout,
 	})
+	if config.Proxy != nil {
+		transport.Proxy = config.Proxy
+	}
 	tr, err := rest.HTTPWrappersForConfig(config, transport)
 	if err != nil {
 		return err
@@ -3126,6 +3145,20 @@ func SetK8SConfigDefaults(config *rest.Config) error {
 		config.WrapTransport = utilhttp.WithRetry(maxRetries, backoffDuration)
 	}
 	return nil
+}
+
+// ParseProxyUrl returns a parsed url and verifies that schema is correct
+func ParseProxyUrl(proxyUrl string) (*url.URL, error) {
+	u, err := url.Parse(proxyUrl)
+	if err != nil {
+		return nil, err
+	}
+	switch u.Scheme {
+	case "http", "https", "socks5":
+	default:
+		return nil, fmt.Errorf("Failed to parse proxy url, unsupported scheme %q, must be http, https, or socks5", u.Scheme)
+	}
+	return u, nil
 }
 
 // RawRestConfig returns a go-client REST config from cluster that might be serialized into the file using kube.WriteKubeConfig method.
@@ -3214,6 +3247,13 @@ func (c *Cluster) RawRestConfig() (*rest.Config, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("Unable to create K8s REST config: %w", err)
+	}
+	if c.Config.ProxyUrl != "" {
+		u, err := ParseProxyUrl(c.Config.ProxyUrl)
+		if err != nil {
+			return nil, fmt.Errorf("Unable to create K8s REST config, can`t parse proxy url: %w", err)
+		}
+		config.Proxy = http.ProxyURL(u)
 	}
 	config.DisableCompression = c.Config.DisableCompression
 	config.Timeout = K8sServerSideTimeout
@@ -3325,4 +3365,16 @@ func (a *Application) GetAnnotation(annotation string) string {
 	}
 
 	return v
+}
+
+func (a *Application) IsDeletionConfirmed(since time.Time) bool {
+	val := a.GetAnnotation(synccommon.AnnotationDeletionApproved)
+	if val == "" {
+		return false
+	}
+	parsedVal, err := time.Parse(time.RFC3339, val)
+	if err != nil {
+		return false
+	}
+	return parsedVal.After(since) || parsedVal.Equal(since)
 }

@@ -257,7 +257,7 @@ export const ComparisonStatusIcon = ({
         case appModels.SyncStatuses.Unknown:
             return (
                 <React.Fragment>
-                    <FontAwesomeIcon icon={faCircleNotch} qe-id='utils-sync-status-title' title={title} spin={!noSpin} /> {label && title}
+                    <FontAwesomeIcon icon={faCircleNotch} qe-id='utils-sync-status-title' title={title} spin={!noSpin} style={{color}} /> {label && title}
                 </React.Fragment>
             );
     }
@@ -832,7 +832,7 @@ export const PodHealthIcon = ({state}: {state: appModels.HealthStatus}) => {
             break;
         case appModels.HealthStatuses.Progressing:
             // Use SVG spinner for "Progressing"
-            icon = <FontAwesomeIcon icon={faCircleNotch} spin title='Progressing' />;
+            icon = <FontAwesomeIcon icon={faCircleNotch} spin title='Progressing' style={{color: 'white'}} />;
             break;
         default:
             icon = <i className='fa fa-question-circle' />;
@@ -901,7 +901,7 @@ export const ResourceResultIcon = ({resource}: {resource: appModels.ResourceResu
         switch (resource.hookPhase) {
             case appModels.OperationPhases.Running:
                 color = COLORS.operation.running;
-                return <FontAwesomeIcon icon={faCircleNotch} spin title={resource.message} />;
+                return <FontAwesomeIcon icon={faCircleNotch} spin style={{color}} title={resource.message} />;
             case appModels.OperationPhases.Failed:
                 color = COLORS.operation.failed;
                 className = 'fa fa-heart-broken';

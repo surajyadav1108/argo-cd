@@ -41,7 +41,11 @@ exports[`ComparisonStatusIcon.Unknown 1`] = `
     data-prefix="fas"
     qe-id="utils-sync-status-title"
     role="img"
-    style={{}}
+    style={
+      {
+        "color": "#CCD6DD",
+      }
+    }
     viewBox="0 0 512 512"
     xmlns="http://www.w3.org/2000/svg"
   >
@@ -382,7 +386,11 @@ exports[`ResourceResultIcon.Hook.Running 1`] = `
   data-icon="circle-notch"
   data-prefix="fas"
   role="img"
-  style={{}}
+  style={
+    {
+      "color": "#0DADEA",
+    }
+  }
   viewBox="0 0 512 512"
   xmlns="http://www.w3.org/2000/svg"
 >

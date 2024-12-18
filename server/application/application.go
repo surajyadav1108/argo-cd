@@ -369,7 +369,13 @@ func (s *Server) Create(ctx context.Context, q *application.ApplicationCreateReq
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "unable to check existing application details (%s): %v", appNs, err)
 	}
-	equalSpecs := reflect.DeepEqual(existing.Spec, a.Spec) &&
+
+	if err := argo.ValidateDestination(ctx, &existing.Spec.Destination, s.db); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "application destination spec for %s is invalid: %s", existing.Name, err.Error())
+	}
+
+	equalSpecs := existing.Spec.Destination.Equals(a.Spec.Destination) &&
+		reflect.DeepEqual(existing.Spec, a.Spec) &&
 		reflect.DeepEqual(existing.Labels, a.Labels) &&
 		reflect.DeepEqual(existing.Annotations, a.Annotations) &&
 		reflect.DeepEqual(existing.Finalizers, a.Finalizers)
@@ -2229,7 +2235,7 @@ func getAmbiguousRevision(app *appv1.Application, syncReq *application.Applicati
 	ambiguousRevision := ""
 	if app.Spec.HasMultipleSources() {
 		for i, pos := range syncReq.SourcePositions {
-			if pos == int64(sourceIndex) {
+			if pos == int64(sourceIndex+1) {
 				ambiguousRevision = syncReq.Revisions[i]
 			}
 		}
